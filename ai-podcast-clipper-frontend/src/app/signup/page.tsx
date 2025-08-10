@@ -1,20 +1,16 @@
-"use server";
+import { SupabaseAuth } from "~/components/auth/supabase-auth";
 
-import { redirect } from "next/navigation";
-import { SignupForm } from "~/components/signup-form";
-import { auth } from "~/server/auth";
-
-export default async function Page() {
-  const session = await auth();
-
-  if (session) {
-    redirect("/dashboard");
-  }
-
+export default function SignupPage() {
   return (
     <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
       <div className="w-full max-w-sm">
-        <SignupForm />
+        <div className="mb-6 text-center">
+          <h1 className="text-2xl font-bold">Join Auclip</h1>
+          <p className="text-sm text-gray-600 mt-2">
+            Use your Google or GitHub account to get started
+          </p>
+        </div>
+        <SupabaseAuth />
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import type { VariantProps } from "class-variance-authority";
 import { ArrowLeftIcon, CheckIcon } from "lucide-react";
 import Link from "next/link";
 import { createCheckoutSession, type PriceId } from "~/actions/stripe";
+import { useSupabaseAuth } from "~/components/auth/supabase-auth-provider";
 import { Button, buttonVariants } from "~/components/ui/button";
 import {
   Card,
@@ -61,7 +62,13 @@ const plans: PricingPlan[] = [
   },
 ];
 
-function PricingCard({ plan }: { plan: PricingPlan }) {
+function PricingCard({ plan, userId }: { plan: PricingPlan; userId: string }) {
+  // Bind the userId to the server action
+  const boundCreateCheckoutSession = createCheckoutSession.bind(null, plan.priceId, userId);
+  
+  console.log(`🔍 [Client] PricingCard userId: ${userId}`);
+  console.log(`🔍 [Client] PricingCard priceId: ${plan.priceId}`);
+
   return (
     <Card
       className={cn(
@@ -95,10 +102,7 @@ function PricingCard({ plan }: { plan: PricingPlan }) {
         </ul>
       </CardContent>
       <CardFooter>
-        <form
-          action={() => createCheckoutSession(plan.priceId)}
-          className="w-full"
-        >
+        <form action={boundCreateCheckoutSession} className="w-full">
           <Button variant={plan.buttonVariant} className="w-full" type="submit">
             {plan.buttonText}
           </Button>
@@ -109,6 +113,33 @@ function PricingCard({ plan }: { plan: PricingPlan }) {
 }
 
 export default function BillingPage() {
+  const { user, loading } = useSupabaseAuth();
+  
+  console.log(`🔍 [Client] BillingPage user:`, user);
+  console.log(`🔍 [Client] BillingPage loading:`, loading);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-2">Authentication Required</h2>
+          <p className="text-muted-foreground mb-4">Please log in to purchase credits.</p>
+          <Button asChild>
+            <Link href="/login">Go to Login</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex flex-col space-y-8 px-4 py-12">
       <div className="relative flex items-center justify-center gap-4">
@@ -135,7 +166,7 @@ export default function BillingPage() {
 
       <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
         {plans.map((plan) => (
-          <PricingCard key={plan.title} plan={plan} />
+          <PricingCard key={plan.title} plan={plan} userId={user.id} />
         ))}
       </div>
 

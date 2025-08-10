@@ -12,19 +12,30 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "./ui/avatar";
-import { signOut } from "next-auth/react";
-import { useEffect } from "react";
+import { supabase } from "~/lib/supabase";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 const NavHeader = ({ credits, email }: { credits: number; email: string }) => {
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.push("/login");
+      toast.success("Signed out successfully");
+    } catch (error) {
+      console.error("Error signing out:", error);
+      toast.error("Error signing out");
+    }
+  };
+
   return (
     <header className="bg-background sticky top-0 z-10 flex justify-center border-b">
       <div className="container flex h-16 items-center justify-between px-4 py-2">
         <Link href="/dashboard" className="flex items-center">
           <div className="font-sans text-xl font-medium tracking-tight">
-            <span className="text-foreground">podcast</span>
-            <span className="font-light text-gray-500">/</span>
-            <span className="text-foreground font-light">clipper</span>
+            <span className="text-foreground">Auclip</span>
           </div>
         </Link>
 
@@ -67,7 +78,7 @@ const NavHeader = ({ credits, email }: { credits: number; email: string }) => {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => signOut({ redirectTo: "/login" })}
+                onClick={handleSignOut}
                 className="text-destructive cursor-pointer"
               >
                 Sign out

@@ -1,9 +1,31 @@
 import { serve } from "inngest/next";
 import { inngest } from "../../../inngest/client";
-import { processVideo } from "~/inngest/functions";
+import { 
+  rapidApiOrchestrator
+} from "../../../inngest/parallel-batch-functions";
+import { monitorRemotionProgress } from "../../../inngest/render-completion-handler";
+import { handleRenderStarted, handleRenderCompleted } from "../../../inngest/remotion-render-handler";
+import {
+  phase1OrchestratorEventDriven,
+  phase2BatchProcessorEventDriven,
+  phase3RemotionProcessor
+} from "../../../inngest/event-driven-functions";
 
-// Create an API that serves zero functions
+// Register all functions
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [processVideo],
+  functions: [
+    // RapidAPI download orchestrator
+    rapidApiOrchestrator,
+    
+    // Event-Driven Orchestration Functions
+    phase1OrchestratorEventDriven,
+    phase2BatchProcessorEventDriven,
+    phase3RemotionProcessor,
+    
+    // Support Functions
+    monitorRemotionProgress,
+    handleRenderStarted,
+    handleRenderCompleted
+  ],
 });

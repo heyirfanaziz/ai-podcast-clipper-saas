@@ -1,7 +1,7 @@
 "use client";
 
 import Dropzone, { type DropzoneState } from "shadcn-dropzone";
-import type { Clip } from "@prisma/client";
+import type { Clip } from "~/types/clip";
 import Link from "next/link";
 import { Button } from "./ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
@@ -12,11 +12,13 @@ import {
   CardHeader,
   CardTitle,
 } from "./ui/card";
-import { Loader2, UploadCloud } from "lucide-react";
-import { useState } from "react";
+import { Loader2, UploadCloud, Youtube } from "lucide-react";
+import { useState, useEffect } from "react";
 import { generateUploadUrl } from "~/actions/s3";
 import { toast } from "sonner";
-import { processVideo } from "~/actions/generation";
+import { processVideo, processYouTubeVideo } from "~/actions/generation";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import {
   Table,
   TableBody,
@@ -27,11 +29,13 @@ import {
 } from "./ui/table";
 import { Badge } from "./ui/badge";
 import { useRouter } from "next/navigation";
-import { ClipDisplay } from "./clip-display";
+import { RemotionClipDisplay } from "./remotion-clip-player";
 
 export function DashboardClient({
   uploadedFiles,
   clips,
+  userId,
+  userProfile,
 }: {
   uploadedFiles: {
     id: string;
@@ -40,13 +44,45 @@ export function DashboardClient({
     status: string;
     clipsCount: number;
     createdAt: Date;
+    youtubeUrl?: string;
   }[];
   clips: Clip[];
+  userId: string;
+  userProfile?: {
+    id: string;
+    email: string;
+    full_name: string | null;
+    credits: number;
+    daily_requests: number;
+    daily_limit: number;
+    concurrent_jobs: number;
+    concurrent_limit: number;
+  };
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [processingYoutube, setProcessingYoutube] = useState(false);
+  const [selectedFont, setSelectedFont] = useState("anton");
+
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
+
+  // Auto-refresh when there are processing files
+  useEffect(() => {
+    const hasProcessingFiles = uploadedFiles.some(file => 
+      ['queued', 'downloading', 'transcribing', 'analyzing', 'processing'].includes(file.status)
+    );
+
+    if (hasProcessingFiles) {
+      const interval = setInterval(() => {
+        console.log('🔄 Auto-refreshing dashboard due to processing files...');
+        router.refresh();
+      }, 30000); // Refresh every 30 seconds
+
+      return () => clearInterval(interval);
+    }
+  }, [uploadedFiles, router]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -68,6 +104,7 @@ export function DashboardClient({
       const { success, signedUrl, uploadedFileId } = await generateUploadUrl({
         filename: file.name,
         contentType: file.type,
+        userId: userId,
       });
 
       if (!success) throw new Error("Failed to get upload URL");
@@ -102,20 +139,68 @@ export function DashboardClient({
     }
   };
 
+  const handleYouTubeProcess = async () => {
+    if (!youtubeUrl.trim()) return;
+
+    setProcessingYoutube(true);
+
+    try {
+      const result = await processYouTubeVideo(youtubeUrl, selectedFont, userId);
+
+      if (result.success) {
+        setYoutubeUrl("");
+        setSelectedFont("anton"); // Reset to default
+        toast.success("YouTube video processing started", {
+          description:
+            `Your YouTube video has been scheduled for processing with ${selectedFont} font captions. Check the status below.`,
+          duration: 5000,
+        });
+      }
+    } catch (error) {
+      toast.error("Processing failed", {
+        description:
+          "There was a problem processing your YouTube video. Please check the URL and try again.",
+      });
+    } finally {
+      setProcessingYoutube(false);
+    }
+  };
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col space-y-6 px-4 py-8">
+    <div className="mx-auto flex max-w-5xl flex-col space-y-6 px-4 py-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Podcast Clipper
+            Auclip
           </h1>
           <p className="text-muted-foreground">
             Upload your podcast and get AI-generated clips instantly
           </p>
         </div>
-        <Link href="/dashboard/billing">
-          <Button>Buy Credits</Button>
-        </Link>
+        <div className="flex items-center gap-4">
+          {userProfile && (
+            <div className="text-right">
+              <p className="text-sm font-medium">{userProfile.credits} Credits</p>
+              <p className="text-xs text-muted-foreground">
+                {userProfile.daily_requests}/{userProfile.daily_limit} daily requests
+              </p>
+            </div>
+          )}
+          <Button
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              'Refresh'
+            )}
+          </Button>
+          <Link href="/dashboard/billing">
+            <Button>Buy Credits</Button>
+          </Link>
+        </div>
       </div>
 
       <Tabs defaultValue="upload">
@@ -125,14 +210,81 @@ export function DashboardClient({
         </TabsList>
 
         <TabsContent value="upload">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Podcast</CardTitle>
-              <CardDescription>
-                Upload your audio or video file to generate clips
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+          <div className="space-y-6">
+            {/* YouTube URL Input */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Youtube className="h-5 w-5 text-red-500" />
+                  Process YouTube Video
+                </CardTitle>
+                <CardDescription>
+                  Enter a YouTube URL to automatically download and process the video with professional TikTok-style captions
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="youtube-url">YouTube URL</Label>
+                    <Input
+                      id="youtube-url"
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      value={youtubeUrl}
+                      onChange={(e) => setYoutubeUrl(e.target.value)}
+                      disabled={processingYoutube}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="font-select">Caption Font</Label>
+                    <select
+                      id="font-select"
+                      value={selectedFont}
+                      onChange={(e) => setSelectedFont(e.target.value)}
+                      disabled={processingYoutube}
+                      className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="anton">Anton - Bold & Impact (Recommended)</option>
+                      <option value="poppins">Poppins - Modern & Clean</option>
+                      <option value="montserrat">Montserrat - Professional</option>
+                      <option value="oswald">Oswald - Strong & Condensed</option>
+                      <option value="roboto">Roboto - Clean & Readable</option>
+                    </select>
+                    <p className="text-sm text-muted-foreground">
+                      Choose the font style for your TikTok-style captions. Anton is recommended for maximum impact.
+                    </p>
+                  </div>
+
+                  <Button
+                    onClick={handleYouTubeProcess}
+                    disabled={!youtubeUrl.trim() || processingYoutube}
+                    className="w-full"
+                  >
+                    {processingYoutube ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing YouTube Video...
+                      </>
+                    ) : (
+                      <>
+                        <Youtube className="mr-2 h-4 w-4" />
+                        Process YouTube Video
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* File Upload */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Upload File</CardTitle>
+                <CardDescription>
+                  Or upload your own audio or video file to generate clips
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
               <Dropzone
                 onDrop={handleDrop}
                 accept={{ "video/mp4": [".mp4"] }}
@@ -189,7 +341,6 @@ export function DashboardClient({
                 </Button>
               </div>
 
-              {uploadedFiles.length > 0 && (
                 <div className="pt-6">
                   <div className="mb-2 flex items-center justify-between">
                     <h3 className="text-md mb-2 font-medium">Queue status</h3>
@@ -209,6 +360,7 @@ export function DashboardClient({
                     <Table>
                       <TableHeader>
                         <TableRow>
+                        <TableHead className="w-16">#</TableHead>
                           <TableHead>File</TableHead>
                           <TableHead>Uploaded</TableHead>
                           <TableHead>Status</TableHead>
@@ -216,10 +368,20 @@ export function DashboardClient({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {uploadedFiles.map((item) => (
+                      {uploadedFiles.length > 0 ? (
+                        uploadedFiles.map((item, index) => (
                           <TableRow key={item.id}>
+                            <TableCell className="w-16 text-muted-foreground">
+                              {index + 1}
+                            </TableCell>
                             <TableCell className="max-w-xs truncate font-medium">
-                              {item.filename}
+                              {item.youtubeUrl ? (
+                                <a href={item.youtubeUrl} target="_blank" rel="noopener noreferrer" >
+                                  {item.youtubeUrl}
+                                </a>
+                              ) : (
+                                item.filename
+                              )}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
                               {new Date(item.createdAt).toLocaleDateString()}
@@ -227,6 +389,15 @@ export function DashboardClient({
                             <TableCell>
                               {item.status === "queued" && (
                                 <Badge variant="outline">Queued</Badge>
+                              )}
+                              {item.status === "downloading" && (
+                                <Badge variant="outline">Downloading</Badge>
+                              )}
+                              {item.status === "transcribing" && (
+                                <Badge variant="outline">Transcribing</Badge>
+                              )}
+                              {item.status === "analyzing" && (
+                                <Badge variant="outline">Analyzing</Badge>
                               )}
                               {item.status === "processing" && (
                                 <Badge variant="outline">Processing</Badge>
@@ -236,6 +407,9 @@ export function DashboardClient({
                               )}
                               {item.status === "no credits" && (
                                 <Badge variant="destructive">No credits</Badge>
+                              )}
+                              {item.status === "no_clips_found" && (
+                                <Badge variant="secondary">No clips found</Badge>
                               )}
                               {item.status === "failed" && (
                                 <Badge variant="destructive">Failed</Badge>
@@ -254,27 +428,49 @@ export function DashboardClient({
                               )}
                             </TableCell>
                           </TableRow>
-                        ))}
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                            No videos in queue yet. Upload a file or process a YouTube video to get started.
+                          </TableCell>
+                        </TableRow>
+                      )}
                       </TableBody>
                     </Table>
                   </div>
                 </div>
-              )}
             </CardContent>
           </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="my-clips">
           <Card>
             <CardHeader>
-              <CardTitle>My Clips</CardTitle>
-              <CardDescription>
-                View and manage your generated clips here. Processing may take a
-                few minuntes.
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>My Clips</CardTitle>
+                  <CardDescription>
+                    View and manage your generated clips here. Processing may take a
+                    few minutes.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                >
+                  {refreshing && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Refresh
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <ClipDisplay clips={clips} />
+              <RemotionClipDisplay clips={clips} />
             </CardContent>
           </Card>
         </TabsContent>
